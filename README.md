@@ -2,7 +2,7 @@
 
 Welcome to the project repository! This project builds an automated, non-invasive triage screening model to identify undiagnosed dysglycemia using CDC NHANES survey data. 
 
-To ensure we maintain strict academic integrity, prevent data leakage, and meet the "Excellent" criteria on our assignment rubric, we have established a centralized data pipeline. **Please read this document carefully before writing any model code.**
+To prevent data leakage, a centralized data pipeline have been established . **Please read this document carefully before writing any model code.**
 
 ## 📂 Repository Structure
 

@@ -1,0 +1,6 @@
+step,2017-2020,2021-2023
+1. Merged raw files (all ages),15560,11933
+2. Adults (age >= 18),9693,8153
+3. Not pregnant,9606,8112
+4. HbA1c present,8388,5965
+5. Screen-eligible (no known diabetes),6052,4235

@@ -19,22 +19,22 @@ Conventions (be ready to explain these in the presentation)
 Expects the cleaned frames (after preprocessing.clean_impossible_values).
 """
 from __future__ import annotations
-
 import math
 from pathlib import Path
 from typing import Iterable, Optional
 
 import matplotlib
-
 matplotlib.use("Agg")  # headless backend: figures are only saved, never shown
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
 
-from load_data import FEATURE_BLOCKS, TARGET
-from preprocessing import (FEATURE_TYPES, _require_columns, recode_binary,
-                           resolve_features)
+from dataConfig import dataConfig
+from preprocessing import FeatureExtracter
+
+config = dataConfig()
+extractor = FeatureExtracter(config=config)
 
 FIG_DIR = Path("./figures")
 DPI = 200
@@ -107,8 +107,8 @@ def wilson_ci(k, n, z: float = 1.96) -> tuple[np.ndarray, np.ndarray]:
 
 def _prevalence_table(df: pd.DataFrame, by: list[str]) -> pd.DataFrame:
     """Rows = groups defined by `by`; columns n, positives, prevalence, Wilson CI."""
-    _require_columns(df, by + [TARGET], "_prevalence_table")
-    g = (df.groupby(by, observed=True)[TARGET]
+    extractor._require_columns(df, by + [config.target_col], "_prevalence_table")
+    g = (df.groupby(by, observed=True)[config.target_col]
            .agg(n="count", positives="sum").reset_index())
     g["prevalence"] = g["positives"] / g["n"]
     g["ci_low"], g["ci_high"] = wilson_ci(g["positives"], g["n"])
@@ -153,15 +153,15 @@ def _level_name(feature: str, value: float) -> str:
     """Readable name for a category level (recoded binaries show No/Yes)."""
     if feature in LEVEL_LABELS:
         return LEVEL_LABELS[feature].get(float(value), str(value))
-    if FEATURE_TYPES.get(feature) == "binary":
+    if config.feature_types.get(feature) == "binary":
         return BINARY_NO_YES.get(float(value), str(value))
     return str(value)
 
 
 def _split_by_type(features: list[str]) -> tuple[list[str], list[str]]:
     """Numeric features vs everything categorical (binary, ordinal, nominal)."""
-    numeric = [f for f in features if FEATURE_TYPES[f] == "numeric"]
-    categorical = [f for f in features if FEATURE_TYPES[f] != "numeric"]
+    numeric = [f for f in features if config.feature_types[f] == "numeric"]
+    categorical = [f for f in features if config.feature_types[f] != "numeric"]
     return numeric, categorical
 
 
@@ -195,7 +195,7 @@ def cohort_flow_table(flow: list[dict]) -> pd.DataFrame:
 def prevalence_overview(train: pd.DataFrame, test: pd.DataFrame,
                         save_name: str = "01_prevalence_overview.png") -> pd.DataFrame:
     """Target prevalence by age band, sex and Asian descent (TRAIN only). Test n is reported."""
-    _require_columns(train, [TARGET, "age", "sex", "is_asian_descent"], "prevalence_overview (train)")
+    extractor._require_columns(train, [config.target_col, "age", "sex", "is_asian_descent"], "prevalence_overview (train)")
     _style()
     
     # Process train for plotting
@@ -234,9 +234,9 @@ def missingness_summary(train: pd.DataFrame, test: pd.DataFrame,
                         blocks: Optional[Iterable[str]] = None,
                         save_name: str = "02_missingness.png") -> pd.DataFrame:
     """Proportion missing per MODEL feature, train vs test, sorted high to low."""
-    features = resolve_features(blocks)
-    _require_columns(train, features, "missingness_summary (train)")
-    _require_columns(test, features, "missingness_summary (test)")
+    features = extractor.resolve_features(blocks)
+    extractor._require_columns(train, features, "missingness_summary (train)")
+    extractor._require_columns(test, features, "missingness_summary (test)")
     _style()
     miss = pd.concat([train[features].isna().mean(), test[features].isna().mean()],
                      axis=1, keys=[TRAIN_LABEL, TEST_LABEL])
@@ -267,8 +267,8 @@ def missing_vs_target(train: pd.DataFrame, blocks: Optional[Iterable[str]] = Non
     missingness is informative and a missing-indicator flag may help. Features
     with fewer than `min_missing` missing rows are skipped (too few to compare).
     """
-    features = resolve_features(blocks)
-    _require_columns(train, features + [TARGET], "missing_vs_target")
+    features = extractor.resolve_features(blocks)
+    extractor._require_columns(train, features + [config.target_col], "missing_vs_target")
     _style()
     rows = []
     for f in features:
@@ -277,7 +277,7 @@ def missing_vs_target(train: pd.DataFrame, blocks: Optional[Iterable[str]] = Non
             continue
         for label, mask in (("Missing", is_missing), ("Observed", ~is_missing)):
             rows.append({"feature": f, "group": label, "n": int(mask.sum()),
-                         "positives": float(train.loc[mask, TARGET].sum())})
+                         "positives": float(train.loc[mask, config.target_col].sum())})
     if not rows:
         print(f"No feature has >= {min_missing} missing rows in train; nothing to plot.")
         return pd.DataFrame(columns=["feature", "group", "n", "positives",
@@ -316,12 +316,12 @@ def plot_distributions(train: pd.DataFrame, test: pd.DataFrame,
     sample sizes do not distort the comparison. Missing values are left out here
     (they are covered by missingness_summary).
     """
-    features = resolve_features(blocks)
-    _require_columns(train, features, "plot_distributions (train)")
-    _require_columns(test, features, "plot_distributions (test)")
+    features = extractor.resolve_features(blocks)
+    extractor._require_columns(train, features, "plot_distributions (train)")
+    extractor._require_columns(test, features, "plot_distributions (test)")
     _style()
     numeric, categorical = _split_by_type(features)
-    both = _stack(recode_binary(train), recode_binary(test))
+    both = _stack(extractor.recode_binary(train), extractor.recode_binary(test))
     palette = {TRAIN_LABEL: COLORS[TRAIN_LABEL], TEST_LABEL: COLORS[TEST_LABEL]}
 
     # --- numeric: overlaid density histograms
@@ -384,12 +384,12 @@ def prevalence_by_feature(train: pd.DataFrame, blocks: Optional[Iterable[str]] =
     point rests on a similar number of people. Features with many tied values
     (e.g. alcohol: many zeros) produce fewer than 10 bins; that is expected.
     """
-    features = resolve_features(blocks)
-    _require_columns(train, features + [TARGET], "prevalence_by_feature")
+    features = extractor.resolve_features(blocks)
+    extractor._require_columns(train, features + [config.target_col], "prevalence_by_feature")
     _style()
     numeric, categorical = _split_by_type(features)
-    data = recode_binary(train)
-    overall = data[TARGET].mean()
+    data = extractor.recode_binary(train)
+    overall = data[config.target_col].mean()
     rows = []
 
     # --- numeric -> deciles
@@ -397,7 +397,7 @@ def prevalence_by_feature(train: pd.DataFrame, blocks: Optional[Iterable[str]] =
     nrows = math.ceil(len(numeric) / ncols)
     fig, axes = plt.subplots(nrows, ncols, figsize=(4.2 * ncols, 3 * nrows), squeeze=False)
     for ax, f in zip(axes.ravel(), numeric):
-        d = data[[f, TARGET]].dropna()
+        d = data[[f, config.target_col]].dropna()
         d["bin"] = pd.qcut(d[f], q=n_bins, duplicates="drop")
         t = _prevalence_table(d, ["bin"])
         t["feature"], t["bin_order"] = f, np.arange(1, len(t) + 1)
@@ -419,7 +419,7 @@ def prevalence_by_feature(train: pd.DataFrame, blocks: Optional[Iterable[str]] =
     nrows = math.ceil(len(categorical) / ncols)
     fig, axes = plt.subplots(nrows, ncols, figsize=(4.2 * ncols, 3 * nrows), squeeze=False)
     for ax, f in zip(axes.ravel(), categorical):
-        d = data[[f, TARGET]].dropna()
+        d = data[[f, config.target_col]].dropna()
         t = _prevalence_table(d, [f])
         t["level"] = t[f].map(lambda v: _level_name(f, v))
         t["feature"] = f
@@ -457,14 +457,14 @@ def spearman_heatmaps(train: pd.DataFrame, blocks: Optional[Iterable[str]] = Non
     smoking) are skipped because their integer codes have no order, so a
     correlation would be meaningless.
     """
-    names = list(FEATURE_BLOCKS) if blocks is None else list(blocks)
-    resolve_features(names)  # validation only
+    names = list(config.feature_blocks) if blocks is None else list(blocks)
+    extractor.resolve_features(names)  # validation only
     _style()
-    data = recode_binary(train)
+    data = extractor.recode_binary(train)
     corr_by_block: dict[str, pd.DataFrame] = {}
     for block in names:
-        feats = [f for f in FEATURE_BLOCKS[block] if FEATURE_TYPES[f] != "nominal"]
-        _require_columns(data, feats, f"spearman_heatmaps ({block})")
+        feats = [f for f in config.feature_blocks[block] if config.feature_types[f] != "nominal"]
+        extractor._require_columns(data, feats, f"spearman_heatmaps ({block})")
         if len(feats) >= 2:
             # pairwise-complete correlation: each pair uses the rows where both exist
             corr_by_block[block] = data[feats].corr(method="spearman")
@@ -491,13 +491,13 @@ def spearman_heatmaps(train: pd.DataFrame, blocks: Optional[Iterable[str]] = Non
 def global_correlation(train: pd.DataFrame, blocks: Optional[Iterable[str]] = None,
                        save_name: str = "05_global_spearman.png") -> pd.DataFrame:
     """Global Spearman correlation to catch collinearity across all blocks (TRAIN only)."""
-    features = resolve_features(blocks)
+    features = extractor.resolve_features(blocks)
     # Exclude nominal features as integer codes lack magnitude/order
-    feats = [f for f in features if FEATURE_TYPES[f] != "nominal"]
-    _require_columns(train, feats, "global_correlation")
+    feats = [f for f in features if config.feature_types[f] != "nominal"]
+    extractor._require_columns(train, feats, "global_correlation")
     _style()
     
-    data = recode_binary(train)
+    data = extractor.recode_binary(train)
     corr = data[feats].corr(method="spearman")
     
     # Heatmap
@@ -538,15 +538,15 @@ def temporal_drift(train: pd.DataFrame, test: pd.DataFrame,
     shift for the report. It must not be used to drop or alter features, because
     that would let the locked test cycle influence modelling.
     """
-    features = resolve_features(blocks)
-    _require_columns(train, features, "temporal_drift (train)")
-    _require_columns(test, features, "temporal_drift (test)")
+    features = extractor.resolve_features(blocks)
+    extractor._require_columns(train, features, "temporal_drift (train)")
+    extractor._require_columns(test, features, "temporal_drift (test)")
     _style()
-    tr, te = recode_binary(train), recode_binary(test)
+    tr, te = extractor.recode_binary(train), extractor.recode_binary(test)
     rows = []
     for f in features:
         a, b = tr[f].dropna(), te[f].dropna()
-        if FEATURE_TYPES[f] == "numeric":
+        if config.feature_types[f] == "numeric":
             pooled_sd = math.sqrt((a.var(ddof=1) + b.var(ddof=1)) / 2)
             smd = (b.mean() - a.mean()) / pooled_sd if pooled_sd > 0 else 0.0
             rows.append({"feature": f, "kind": "numeric (SMD)", "drift": abs(smd),
@@ -587,9 +587,9 @@ def asian_bmi_prevalence(train: pd.DataFrame,
     cut-offs separates risk better inside the Asian subgroup. Hatched bars have
     fewer than MIN_N people: read them as hints, not findings.
     """
-    _require_columns(train, ["body_mass_index", "is_asian_descent", TARGET], "asian_bmi_prevalence")
+    extractor._require_columns(train, ["body_mass_index", "is_asian_descent", config.target_col], "asian_bmi_prevalence")
     _style()
-    d = train[["body_mass_index", "is_asian_descent", TARGET]].dropna().copy()
+    d = train[["body_mass_index", "is_asian_descent", config.target_col]].dropna().copy()
     d["Group"] = d["is_asian_descent"].map({0: "Non-Asian", 1: "Asian"})
     tables = []
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
@@ -609,11 +609,14 @@ def asian_bmi_prevalence(train: pd.DataFrame,
 
 def label_quality_check(train: pd.DataFrame, save_name: str = "08_label_quality.png") -> pd.DataFrame:
     """Prevalence for 'fasting glucose available' vs 'HbA1c only'."""
-    _require_columns(train, ["PHAFSTHR", TARGET], "label_quality_check")
+    extractor._require_columns(train, ["PHAFSTHR", "LBXGLU", config.target_col], "label_quality_check")
     _style()
     
-    d = train[["PHAFSTHR", TARGET]].copy()
-    d["Label Source"] = d["PHAFSTHR"].notna().map({True: "Fasting Glucose + HbA1c", False: "HbA1c only"})
+    d = train[["PHAFSTHR", "LBXGLU", config.target_col]].copy()
+
+    has_fasting = d['LBXGLU'].notna() & (d["PHAFSTHR"] >= 8)
+
+    d["Label Source"] = has_fasting.map({True: "Fasting Glucose + HbA1c", False: "HbA1c only"})
     d["Cohort"] = "Train" # Dummy hue for the bar plot helper
     
     t = _prevalence_table(d, ["Label Source", "Cohort"])
@@ -651,12 +654,10 @@ def run_all_eda(train: pd.DataFrame, test: pd.DataFrame,
 
 
 if __name__ == "__main__":
-    from load_data import NHANES
-    from preprocessing import clean_impossible_values
+    from preprocessing import Loader
 
-    nh = NHANES()
-    df_train, df_test = nh.get_nhanes()
-    df_train, _ = clean_impossible_values(df_train)
-    df_test, _ = clean_impossible_values(df_test)
-    run_all_eda(df_train, df_test, flow=nh.flow)
+    loader = Loader(config)
+    df_train, df_test, flow, _, _ = loader.load_clean(force_rebuild=False)
+
+    run_all_eda(df_train, df_test, flow=flow)
     print("Saved figures:", sorted(p.name for p in FIG_DIR.glob("*.png")))

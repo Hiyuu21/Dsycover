@@ -15,6 +15,11 @@ print("1. Loading and cleaning data...")
 train_df, test_df, flow, tr_report, te_report = loader.load_clean(force_rebuild=True)
 print(f"Loaded Train shape: {train_df.shape}, Test shape: {test_df.shape}\n")
 
+print("Exporting cleaned datasets to CSV...")
+train_df.to_csv("clean_train.csv", index=False)
+test_df.to_csv("clean_test.csv", index=False)
+print("Saved 'clean_train.csv' and 'clean_test.csv' to your project folder.\n")
+
 print("--- Impossible Value Cleaning Report (Train) ---")
 print(tr_report[["rule", "n_values_changed"]].to_string(index=False))
 print("\n")
